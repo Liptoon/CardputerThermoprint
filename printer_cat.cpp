@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <SD.h>
 #include "printer_cat.h"
 
 // ---------------------------------------------------------------------------
@@ -106,16 +107,12 @@ static size_t cmd_feed_paper(uint8_t amount, uint8_t* out)
 }
 
 // ---------------------------------------------------------------------------
-// Row encoding.
-// Run-length encode one row (384 bits) into Cat's RLE format.
-// If RLE is larger than raw, fall back to raw byte encoding.
-// Returns frame bytes written into out[].
-// out must be large enough: worst case raw = 384/8 + 8 = 56 bytes.
+// Row encoding – force RLE only, no raw fallback.
+// RLE buffer increased to 512 bytes to handle worst‑case rows.
 // ---------------------------------------------------------------------------
-static size_t encode_row(const uint8_t* row_bits, int width_px, uint8_t* out)
+static size_t encode_row_rle(const uint8_t* row_bits, int width_px, uint8_t* out)
 {
-    // Build RLE payload.
-    uint8_t rle[64];
+    uint8_t rle[512];
     size_t  rle_len = 0;
 
     int px = 0;
@@ -127,23 +124,18 @@ static size_t encode_row(const uint8_t* row_bits, int width_px, uint8_t* out)
             if (nv != val) break;
             count++;
         }
-        if (rle_len + 1 > sizeof(rle)) { rle_len = sizeof(rle) + 1; break; }
+        // Safety: if buffer would overflow, stop (should not happen for 384 pixels)
+        if (rle_len + 1 >= sizeof(rle)) break;
         rle[rle_len++] = (uint8_t)((val << 7) | count);
         px += count;
     }
 
-    int raw_bytes = (width_px + 7) / 8;
-
-    if (rle_len > (size_t)raw_bytes) {
-        // Raw fallback: cmd 0xA2.
-        return build_cmd(0xA2, row_bits, raw_bytes, out);
-    }
-    // RLE: cmd 0xBF.
+    // Always use RLE command (0xBF)
     return build_cmd(0xBF, rle, rle_len, out);
 }
 
 // ---------------------------------------------------------------------------
-// cat_print
+// cat_print – with RLE‑only encoding and a 15ms delay between rows
 // ---------------------------------------------------------------------------
 bool cat_print(BLEPrinter* ble, const BinImage& img, uint16_t energy)
 {
@@ -157,7 +149,7 @@ bool cat_print(BLEPrinter* ble, const BinImage& img, uint16_t energy)
     Serial.printf("[CAT] Printing %dx%d energy=0x%04X\n",
                   img.width, img.height, energy);
 
-    uint8_t buf[80]; // enough for any single command frame
+    uint8_t buf[512]; // large enough for RLE frames
     size_t  n;
 
     // Build and send header commands.
@@ -169,11 +161,13 @@ bool cat_print(BLEPrinter* ble, const BinImage& img, uint16_t energy)
 
     // Send rows.
     int row_bytes = img.row_bytes();
-    uint8_t row_frame[80];
+    uint8_t row_frame[512];
     for (int y = 0; y < img.height; y++) {
-        const uint8_t* row = img.data + y * row_bytes;
-        size_t frame_len = encode_row(row, img.width, row_frame);
+        const uint8_t* row = img.data + (size_t)y * (size_t)row_bytes;
+        size_t frame_len = encode_row_rle(row, img.width, row_frame);
+        ble->clear_notify();
         ble->send_chunked(row_frame, frame_len, 20, 10);
+        delay(3); // 15 ms delay – critical to prevent buffer overflow
     }
 
     // Footer commands.

@@ -5,6 +5,9 @@
 #include "image_pipeline.h"
 #include "font_data.h"
 
+// For Cat printer validation (max width = 384)
+static constexpr int CAT_PRINT_WIDTH = 384;
+
 // ---------------------------------------------------------------------------
 // Glyph lookup
 // ---------------------------------------------------------------------------
@@ -18,70 +21,135 @@ static const uint8_t* get_glyph(uint32_t cp, int size_idx)
 }
 
 // ---------------------------------------------------------------------------
-// Word-wrap into fixed line buffers. Skips \r.
+// UTF-8 decoder: reads a UTF-8 sequence from the string and returns the
+// Unicode code point. Advances the index i accordingly.
+// Returns 0 on invalid sequence (falls back to '?').
+// ---------------------------------------------------------------------------
+static uint32_t utf8_decode(const char* str, int* i)
+{
+    uint8_t c = (uint8_t)str[*i];
+    if (c < 0x80) {
+        (*i)++;
+        return c;
+    }
+    if ((c & 0xE0) == 0xC0 && (uint8_t)str[*i + 1] != 0) {
+        uint32_t cp = ((c & 0x1F) << 6) | ((uint8_t)str[*i + 1] & 0x3F);
+        if (cp >= 0x80) {
+            (*i) += 2;
+            return cp;
+        }
+    } else if ((c & 0xF0) == 0xE0 && (uint8_t)str[*i + 1] != 0 && (uint8_t)str[*i + 2] != 0) {
+        uint32_t cp = ((c & 0x0F) << 12) | (((uint8_t)str[*i + 1] & 0x3F) << 6) | ((uint8_t)str[*i + 2] & 0x3F);
+        if (cp >= 0x800) {
+            (*i) += 3;
+            return cp;
+        }
+    } else if ((c & 0xF8) == 0xF0 && (uint8_t)str[*i + 1] != 0 && (uint8_t)str[*i + 2] != 0 && (uint8_t)str[*i + 3] != 0) {
+        uint32_t cp = ((c & 0x07) << 18) | (((uint8_t)str[*i + 1] & 0x3F) << 12) | (((uint8_t)str[*i + 2] & 0x3F) << 6) | ((uint8_t)str[*i + 3] & 0x3F);
+        if (cp >= 0x10000 && cp <= 0x10FFFF) {
+            (*i) += 4;
+            return cp;
+        }
+    }
+    // Invalid sequence – skip one byte and return '?'
+    (*i)++;
+    return '?';
+}
+
+// ---------------------------------------------------------------------------
+// Word-wrap into fixed line buffers. Input text is UTF‑8; we decode
+// characters to get correct length for width calculation.
 // ---------------------------------------------------------------------------
 static constexpr int MAX_LINES    = 128;
-static constexpr int MAX_LINE_LEN = 128; // reduced from 256
+static constexpr int MAX_LINE_LEN = 128; // in bytes, not characters
 
 static int word_wrap(const char* text, int max_chars,
                      char line_buf[][MAX_LINE_LEN], int max_lines)
 {
     int n_lines = 0;
-    const char* p = text;
+    int char_count = 0;
+    int last_space_pos = -1;        // byte position of last space
+    int last_space_chars = 0;       // character count at last space
+    int line_start = 0;
+    int i = 0;
 
-    while (*p && n_lines < max_lines) {
-        while (*p == '\r') p++;
-        if (*p == '\0') break;
+    while (text[i] && n_lines < max_lines) {
+        // Skip \r
+        if (text[i] == '\r') { i++; continue; }
 
-        if (*p == '\n') {
-            line_buf[n_lines][0] = '\0';
+        // Handle explicit newline
+        if (text[i] == '\n') {
+            int copy_len = i - line_start;
+            if (copy_len >= MAX_LINE_LEN) copy_len = MAX_LINE_LEN - 1;
+            memcpy(line_buf[n_lines], text + line_start, copy_len);
+            line_buf[n_lines][copy_len] = '\0';
+            int tl = (int)strlen(line_buf[n_lines]);
+            while (tl > 0 && line_buf[n_lines][tl-1] == ' ') line_buf[n_lines][--tl] = '\0';
             n_lines++;
-            p++;
+            i++; // skip \n
+            line_start = i;
+            char_count = 0;
+            last_space_pos = -1;
+            last_space_chars = 0;
             continue;
         }
 
-        // Collect up to max_chars printable chars, tracking last space.
-        int  len     = 0;
-        int  last_sp = -1;
-        const char* line_start = p;
-
-        while (*p && *p != '\n' && len < max_chars) {
-            if (*p == '\r') { p++; continue; }
-            if (*p == ' ') last_sp = len;
-            len++;
-            p++;
+        int old_i = i;
+        uint32_t cp = utf8_decode(text, &i);
+        if (cp == ' ') {
+            last_space_pos = i;       // byte position after the space
+            last_space_chars = char_count;
         }
 
-        // Soft-wrap at last space if we stopped mid-word.
-        if (*p && *p != '\n' && last_sp >= 0) {
-            int rewind = len - last_sp - 1;
-            p -= rewind;
-            len = last_sp;
-        }
+        char_count++;
 
-        // Copy to line_buf, stripping trailing spaces.
-        int copy_len = (len < MAX_LINE_LEN - 1) ? len : MAX_LINE_LEN - 1;
-        memcpy(line_buf[n_lines], line_start, copy_len);
-        line_buf[n_lines][copy_len] = '\0';
-        // Trim trailing spaces.
-        int tl = (int)strlen(line_buf[n_lines]);
-        while (tl > 0 && line_buf[n_lines][tl-1] == ' ') {
-            line_buf[n_lines][--tl] = '\0';
+        if (char_count > max_chars) {
+            if (last_space_pos >= 0) {
+                int copy_len = last_space_pos - line_start - 1; // exclude space
+                if (copy_len < 0) copy_len = 0;
+                if (copy_len >= MAX_LINE_LEN) copy_len = MAX_LINE_LEN - 1;
+                memcpy(line_buf[n_lines], text + line_start, copy_len);
+                line_buf[n_lines][copy_len] = '\0';
+                int tl = (int)strlen(line_buf[n_lines]);
+                while (tl > 0 && line_buf[n_lines][tl-1] == ' ') line_buf[n_lines][--tl] = '\0';
+                n_lines++;
+                line_start = last_space_pos;
+                i = line_start;
+                char_count = char_count - last_space_chars - 1;
+                last_space_pos = -1;
+                last_space_chars = 0;
+                continue;
+            } else {
+                // hard break at max_chars
+                int copy_len = old_i - line_start;
+                if (copy_len >= MAX_LINE_LEN) copy_len = MAX_LINE_LEN - 1;
+                memcpy(line_buf[n_lines], text + line_start, copy_len);
+                line_buf[n_lines][copy_len] = '\0';
+                n_lines++;
+                line_start = old_i;
+                i = old_i;
+                char_count = 0;
+                continue;
+            }
         }
-        n_lines++;
-
-        if (*p == '\n') p++;
-        while (*p == ' ') p++;
     }
+
+    // Copy the last line if any
+    if (text[line_start] != '\0') {
+        int copy_len = i - line_start;
+        if (copy_len >= MAX_LINE_LEN) copy_len = MAX_LINE_LEN - 1;
+        memcpy(line_buf[n_lines], text + line_start, copy_len);
+        line_buf[n_lines][copy_len] = '\0';
+        int tl = (int)strlen(line_buf[n_lines]);
+        while (tl > 0 && line_buf[n_lines][tl-1] == ' ') line_buf[n_lines][--tl] = '\0';
+        n_lines++;
+    }
+
     return n_lines;
 }
 
 // ---------------------------------------------------------------------------
 // render_text_label
-//
-// Row-by-row rendering: for each row of the output canvas, iterate over
-// all visible glyphs and set pixels that intersect that row.
-// Never allocates more than one canvas row at a time.
 // ---------------------------------------------------------------------------
 bool render_text_label(const char* text,
                         int target_w, int target_h,
@@ -107,54 +175,93 @@ bool render_text_label(const char* text,
     int max_chars = render_w / gw;
     if (max_chars < 1) max_chars = 1;
 
-    // Word-wrap. line_buf is static (BSS) to avoid stack pressure.
+    // Word-wrap.
     static char line_buf[MAX_LINES][MAX_LINE_LEN];
     int n_lines = word_wrap(text, max_chars, line_buf, MAX_LINES);
     if (n_lines == 0) return false;
 
-    // Canvas dimensions.
     int canvas_w = render_w + 2 * MARGIN;
     int canvas_h = n_lines * line_h - line_spacing + 2 * MARGIN;
-    int max_canvas_h = rotate ? (target_w - 2 * MARGIN) : 0;
-    if (max_canvas_h > 0 && canvas_h > max_canvas_h)
-        canvas_h = max_canvas_h;
+
+    // Limit lines for Fischero (rotated)
+    if (rotate) {
+        int max_canvas_h = target_w - 2 * MARGIN;
+        if (max_canvas_h < line_h) max_canvas_h = line_h;
+        int max_lines_fit = (max_canvas_h - 2 * MARGIN + line_spacing) / line_h;
+        if (max_lines_fit < 1) max_lines_fit = 1;
+        if (n_lines > max_lines_fit) {
+            Serial.printf("[TEXT] Warning: %d lines truncated to %d\n", n_lines, max_lines_fit);
+            n_lines = max_lines_fit;
+            canvas_h = n_lines * line_h - line_spacing + 2 * MARGIN;
+            if (canvas_h > max_canvas_h) canvas_h = max_canvas_h;
+        }
+    } else {
+        const int MAX_SAFE_HEIGHT = 4000;
+        if (canvas_h > MAX_SAFE_HEIGHT) {
+            Serial.printf("[TEXT] Text too tall (%d px), truncating\n", canvas_h);
+            int max_lines_fit = (MAX_SAFE_HEIGHT - 2 * MARGIN + line_spacing) / line_h;
+            if (max_lines_fit < 1) max_lines_fit = 1;
+            if (n_lines > max_lines_fit) n_lines = max_lines_fit;
+            canvas_h = n_lines * line_h - line_spacing + 2 * MARGIN;
+            if (canvas_h > MAX_SAFE_HEIGHT) canvas_h = MAX_SAFE_HEIGHT;
+        }
+    }
 
     Serial.printf("[TEXT] n=%d gw=%d gh=%d canvas=%dx%d rot=%d\n",
                   n_lines, gw, gh, canvas_w, canvas_h, rotate);
 
-    // Allocate the output packed BinImage directly.
     BinImage canvas_img;
     if (!binimage_alloc(canvas_img, canvas_w, canvas_h)) {
         Serial.printf("[TEXT] BinImage alloc failed %dx%d\n", canvas_w, canvas_h);
         return false;
     }
-    // binimage_alloc zero-initialises (all white).
 
-    // Precompute per-line x offsets and glyph pointers.
-    // Render each row of the canvas by scanning all lines whose y-range
-    // intersects that row.
-    int line_y[MAX_LINES]; // canvas y of top of each line
-    int line_x[MAX_LINES]; // canvas x of first glyph of each line
-    int line_len[MAX_LINES];
+    // Allocate code-point buffer on the heap (PSRAM first, SRAM fallback)
+    uint32_t* cp_array = (uint32_t*)heap_caps_malloc(
+        (size_t)MAX_LINES * MAX_LINE_LEN * sizeof(uint32_t),
+        MALLOC_CAP_SPIRAM
+    );
+    if (!cp_array) cp_array = (uint32_t*)malloc(
+        (size_t)MAX_LINES * MAX_LINE_LEN * sizeof(uint32_t)
+    );
+    if (!cp_array) {
+        Serial.println("[TEXT] cp_array alloc failed");
+        canvas_img.free_data();
+        return false;
+    }
+
+    int line_lens[MAX_LINES]; // per-line character counts
+
     for (int li = 0; li < n_lines; li++) {
-        line_len[li] = (int)strlen(line_buf[li]);
-        line_y[li]   = MARGIN + li * line_h;
-        int line_px  = line_len[li] * gw;
-        line_x[li]   = MARGIN + (render_w - line_px) / 2;
+        int cp_idx = 0;
+        int byte_idx = 0;
+        const char* p = line_buf[li];
+        while (p[byte_idx] && cp_idx < MAX_LINE_LEN) {
+            int i = byte_idx;
+            cp_array[li * MAX_LINE_LEN + cp_idx++] = utf8_decode(p, &i);
+            byte_idx = i;
+        }
+        line_lens[li] = cp_idx;
+    }
+
+    // Precompute line positions
+    int line_y[MAX_LINES];
+    int line_x[MAX_LINES];
+    for (int li = 0; li < n_lines; li++) {
+        line_y[li] = MARGIN + li * line_h;
+        int line_px = line_lens[li] * gw;
+        line_x[li] = MARGIN + (render_w - line_px) / 2;
         if (line_x[li] < MARGIN) line_x[li] = MARGIN;
     }
 
-    // Row-by-row rendering.
+    // Row-by-row rendering
     for (int row = 0; row < canvas_h; row++) {
-        // Find which text line this canvas row belongs to.
-        // row is within a line if: line_y[li] <= row < line_y[li] + gh
         for (int li = 0; li < n_lines; li++) {
-            int gy = row - line_y[li]; // row within glyph (0..gh-1)
+            int gy = row - line_y[li];
             if (gy < 0 || gy >= gh) continue;
 
-            // This row intersects line li, glyph row gy.
-            for (int ci = 0; ci < line_len[li]; ci++) {
-                uint32_t cp = (uint32_t)(uint8_t)line_buf[li][ci];
+            for (int ci = 0; ci < line_lens[li]; ci++) {
+                uint32_t cp = cp_array[li * MAX_LINE_LEN + ci];
                 if (cp < 0x20) cp = ' ';
                 const uint8_t* glyph = get_glyph(cp, font_size_idx);
                 const uint8_t* glyph_row = glyph + gy * row_bytes_glyph;
@@ -171,7 +278,9 @@ bool render_text_label(const char* text,
         }
     }
 
-    // Rotate+center for Fischero, or just center for Cat.
+    free(cp_array);
+
+    // Rotate and/or center
     if (rotate) {
         BinImage rotated;
         if (!binimage_rotate_90cw(canvas_img, rotated)) {
@@ -191,6 +300,18 @@ bool render_text_label(const char* text,
             return false;
         }
         canvas_img.free_data();
+    }
+
+    // Final sanity check
+    if (out.width <= 0 || out.width > CAT_PRINT_WIDTH) {
+        Serial.printf("[TEXT] Final image width %d is invalid\n", out.width);
+        out.free_data();
+        return false;
+    }
+    if (out.height <= 0 || out.height > 5000) {
+        Serial.printf("[TEXT] Final image height %d is invalid\n", out.height);
+        out.free_data();
+        return false;
     }
 
     Serial.printf("[TEXT] done: %dx%d\n", out.width, out.height);
