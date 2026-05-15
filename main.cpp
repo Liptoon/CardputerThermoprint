@@ -22,8 +22,20 @@
 // ---------------------------------------------------------------------------
 static BLEPrinter g_ble;
 static Config     g_cfg;
-static bool       g_sd_ok   = false;
-static bool       g_connected = false;
+static bool       g_sd_ok      = false;
+static bool       g_connected  = false;
+static volatile bool g_print_abort = false;
+
+// Call from BLE send loops to check for user abort.
+// Returns true if user pressed any key — caller should stop sending.
+bool print_abort_requested()
+{
+    M5Cardputer.update();
+    if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
+        g_print_abort = true;
+    }
+    return g_print_abort;
+}
 
 // SD SPI instance - pointer so construction is deferred to setup().
 // Assigned in setup() after M5Cardputer.begin().
@@ -90,7 +102,8 @@ static bool do_print(const BinImage& img)
         return false;
     }
 
-    show_message("Printing...", "Please wait");
+    g_print_abort = false;
+    show_message("Printing...", "any key = abort");
 
     bool ok = false;
     if (g_ble.printer_type() == PrinterType::Fischero) {
@@ -100,6 +113,12 @@ static bool do_print(const BinImage& img)
             ? (uint16_t)g_cfg.cat_energy
             : cat_density_to_energy(g_cfg.density);
         ok = cat_print(&g_ble, img, energy);
+    }
+
+    if (g_print_abort) {
+        show_message("Print aborted");
+        delay(1000);
+        return false;
     }
     return ok;
 }

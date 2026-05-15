@@ -8,7 +8,7 @@ static constexpr int TEXT_SIZE = 1;
 static constexpr int LINE_H    = 9;
 static constexpr int CHAR_W    = 6;
 static constexpr int MAX_COLS  = SCREEN_W / CHAR_W;  // 40
-static constexpr int STATUS_H  = LINE_H;
+static constexpr int STATUS_H  = LINE_H * 2;  // two-row status bar
 
 // ---------------------------------------------------------------------------
 // UTF-8 helpers
@@ -69,11 +69,13 @@ static void draw_editor(const char* buf, int len, int cursor, int display_start)
     M5.Display.fillScreen(TFT_BLACK);
     M5.Display.setTextSize(TEXT_SIZE);
 
-    // Status bar.
+    // Status bar - two rows.
     M5.Display.fillRect(0, SCREEN_H - STATUS_H, SCREEN_W, STATUS_H, TFT_NAVY);
     M5.Display.setTextColor(TFT_WHITE, TFT_NAVY);
     M5.Display.setCursor(0, SCREEN_H - STATUS_H + 1);
-    M5.Display.print("Enter=print  Fn+`=back  Fn+nav=;/,/./  Opt+Enter=NL");
+    M5.Display.print("Enter=print  Fn+`=back  Opt+Enter=NL");
+    M5.Display.setCursor(0, SCREEN_H - LINE_H + 1);
+    M5.Display.print("Fn+; . , /  = up dn lt rt");
 
     M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
 

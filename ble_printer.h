@@ -46,6 +46,7 @@ public:
     // Write data to the write characteristic, in chunks.
     // chunk_size: bytes per BLE packet (20 = safe default).
     // delay_ms: gap between packets.
+    // Returns false if write failed or abort was requested.
     bool send_chunked(const uint8_t* data, size_t len,
                       size_t chunk_size = 20, uint32_t delay_ms = 10);
 
@@ -84,3 +85,7 @@ public:
     volatile size_t notify_len_               = 0;
     uint8_t        notify_buf_[BLE_NOTIFY_BUF_LEN] = {};
 };
+
+// Provided by main.cpp. Returns true if the user has requested a print abort.
+// Called from send_chunked between BLE packets.
+extern bool print_abort_requested();

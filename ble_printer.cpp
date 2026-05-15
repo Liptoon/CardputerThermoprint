@@ -299,6 +299,11 @@ bool BLEPrinter::send_chunked(const uint8_t* data, size_t len,
 
     size_t offset = 0;
     while (offset < len) {
+        // Check for user abort between packets.
+        if (print_abort_requested()) {
+            Serial.println("[BLE] send_chunked: aborted by user");
+            return false;
+        }
         size_t end = offset + chunk_size;
         if (end > len) end = len;
         if (!wc->writeValue(data + offset, end - offset, false)) {
