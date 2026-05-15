@@ -1,6 +1,6 @@
 # cardputer_thermoprint
 
-Thermal label printer driver for the M5 Cardputer ADV. Prints text and images over BLE to two supported printer families.
+Thermal label printer driver for the M5 Cardputer. Prints text and images over BLE to two supported printer families.
 
 ## Supported Hardware
 
@@ -15,6 +15,7 @@ Both printers are connected via BLE. The printer type is detected automatically 
 
 - Print text typed on the Cardputer keyboard (UTF-8, including Polish characters)
 - Print text files and images (JPG, PNG, BMP) from SD card
+- Text files open in the editor before printing — review and edit before sending
 - Floyd-Steinberg, Atkinson, and mean-threshold dithering for images
 - Seven font sizes (5–22 px cell width)
 - Configurable print density / thermal energy
@@ -23,7 +24,7 @@ Both printers are connected via BLE. The printer type is detected automatically 
 
 ## Requirements
 
-- M5 Cardputer ADV
+- M5 Cardputer
 - PlatformIO with VS Code
 - SD card (FAT32, files in root directory)
 - `stb_image.h` and `stb_image_resize2.h` from [github.com/nothings/stb](https://github.com/nothings/stb) — copy both into `src/`
@@ -37,7 +38,7 @@ Both printers are connected via BLE. The printer type is detected automatically 
 
 ## Usage
 
-### Navigation
+### Navigation (menus)
 
 | Key | Action |
 |---|---|
@@ -51,13 +52,21 @@ Both printers are connected via BLE. The printer type is detected automatically 
 | Key | Action |
 |---|---|
 | `Enter` | Confirm and print |
-| `` ` `` | Cancel, return to menu |
-| `Opt + Enter` | Insert new line |
-| `Backspace` | Delete character |
+| `Fn + \`` | Cancel, return to menu |
+| `Opt + Enter` | Insert newline |
+| `Backspace` | Delete character before cursor |
+| `Fn + ;` | Cursor up |
+| `Fn + .` | Cursor down |
+| `Fn + ,` | Cursor left |
+| `Fn + /` | Cursor right |
+
+All other printable keys — including `;` `,` `.` `/` `` ` `` — type normally when `Fn` is not held.
 
 ### SD card
 
 Place files in the SD card root. Supported formats: `.txt`, `.jpg`, `.jpeg`, `.png`, `.bmp`.
+
+Text files open in the editor before printing. Press `Enter` to print or `Fn+\`` to cancel.
 
 ## Settings
 
@@ -86,7 +95,7 @@ src/
   text_render.h/cpp        UTF-8 word wrap, bitmap font rendering
   font_data.h              Embedded bitmap font (U+0020–U+017E, 7 sizes)
   ui_menu.h/cpp            Scrollable menu widget
-  ui_text_editor.h/cpp     Full-screen text editor
+  ui_text_editor.h/cpp     Full-screen text editor with full cursor navigation
   ui_file_browser.h/cpp    SD card file browser
   config.h/cpp             Settings load/save (plain key=value on SD)
   keyboard.h/cpp           M5Cardputer keyboard wrapper

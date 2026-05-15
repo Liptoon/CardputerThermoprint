@@ -224,29 +224,40 @@ static void action_print_file()
             return;
         }
 
+        // Open text in editor so user can review/edit before printing.
+        // Cap to editor buffer size - labels don't need more than 2KB.
+        static char editor_buf[2048];
+        static constexpr int EDITOR_BUF_LEN = sizeof(editor_buf);
+        size_t text_len = strlen(text);
+        if (text_len >= EDITOR_BUF_LEN) {
+            text_len = EDITOR_BUF_LEN - 1;
+            show_message("File truncated", "to 2047 chars");
+            delay(1200);
+        }
+        memcpy(editor_buf, text, text_len);
+        editor_buf[text_len] = '\0';
+        free(text);
+
+        // Let user edit. Enter = print, Esc = cancel.
+        if (!text_editor_run(editor_buf, EDITOR_BUF_LEN)) return;
+        if (editor_buf[0] == '\0') return;
+
         if (g_cfg.verbose_diag) {
             M5.Display.fillScreen(TFT_BLACK);
             M5.Display.setTextSize(1);
             M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
             M5.Display.setCursor(0, 0);
             M5.Display.printf("len:%d tw:%d th:%d rot:%d\n",
-                              (int)strlen(text), tw, th, rot);
+                              (int)strlen(editor_buf), tw, th, rot);
             M5.Display.printf("font:%d PSRAM:%u SRAM:%u\n",
                               g_cfg.font_size_idx,
                               (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
                               (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
-            char preview[41];
-            strncpy(preview, text, 40); preview[40] = '\0';
-            for (int i = 0; i < 40 && preview[i]; i++)
-                if ((uint8_t)preview[i] < 0x20 && preview[i] != '\n')
-                    preview[i] = '?';
-            M5.Display.printf("txt:[%.40s]\n", preview);
             M5.Display.println("(any key to render)");
-            char c; while (!keyPressed(c)) delay(50);
+            char c2; while (!keyPressed(c2)) delay(50);
         }
 
-        load_ok = render_text_label(text, tw, th, g_cfg.font_size_idx, rot, img);
-        free(text);
+        load_ok = render_text_label(editor_buf, tw, th, g_cfg.font_size_idx, rot, img);
 
         if (g_cfg.verbose_diag) {
             M5.Display.fillScreen(TFT_BLACK);
@@ -258,7 +269,7 @@ static void action_print_file()
                 M5.Display.printf("img:%dx%d rb:%d\n",
                                   img.width, img.height, img.row_bytes());
             M5.Display.println("(any key)");
-            char c; while (!keyPressed(c)) delay(50);
+            char c2; while (!keyPressed(c2)) delay(50);
         }
 
         if (!load_ok) {

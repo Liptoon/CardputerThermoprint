@@ -3,25 +3,19 @@
 #include "printer_protocol.h"
 
 // ---------------------------------------------------------------------------
-// Render ASCII text to a print-ready BinImage.
+// Render UTF-8 text to a print-ready BinImage.
+// Supports ASCII and Polish characters (U+0020..U+017E, font-dependent).
 //
 // For Fischero landscape:
 //   target_w = 96, target_h = 240 (30mm label)
 //   rotate   = true
-//   Text is rendered into a 238px wide canvas (240 - 2x1px margin),
-//   then rotated 90 CW and centered on 96x240 px.
 //
 // For Cat roll:
 //   target_w = 384, target_h = 0 (grows with content)
 //   rotate   = false
-//   Text is rendered into a 382px wide canvas; height is determined
-//   by line count.  out.height may differ from target_h when target_h=0.
 //
 // font_size_idx: 0..6 (maps to FONT_METRICS[] in font_data.h)
-// margin: pixels on each side (fixed at 1 for this project)
-//
 // Caller must call out.free_data() when done.
-// Returns false on allocation failure.
 // ---------------------------------------------------------------------------
 bool render_text_label(const char* text,
                         int target_w, int target_h,
