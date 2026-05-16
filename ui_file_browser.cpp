@@ -5,6 +5,7 @@
 
 static constexpr int MAX_FILES = 64;
 static constexpr int MAX_NAME  = 32;
+static constexpr const char* PRINT_DIR = "/thermoprint";
 
 static bool ext_match(const char* filename, const char* const* extensions)
 {
@@ -20,25 +21,34 @@ bool file_browser_run(const char* const* extensions,
                        char* selected_path,
                        int   path_buf_len)
 {
-    // Collect matching files from SD root.
-    static char names[MAX_FILES][MAX_NAME];
-    int n_files = 0;
+    // Ensure /thermoprint directory exists.
+    if (!SD.exists(PRINT_DIR)) {
+        SD.mkdir(PRINT_DIR);
+        Serial.printf("[FB] Created directory %s\n", PRINT_DIR);
+    }
 
-    File root = SD.open("/");
-    if (!root) {
-        Serial.println("[FB] Cannot open SD root");
+    File dir = SD.open(PRINT_DIR);
+    if (!dir) {
+        Serial.printf("[FB] Cannot open %s\n", PRINT_DIR);
+        const char* msg[] = {"Cannot open /thermoprint", "(Backspace=back)"};
+        menu_run("SD Error", msg, 2);
         return false;
     }
 
+    static char names[MAX_FILES][MAX_NAME];
+    int n_files = 0;
+
     while (n_files < MAX_FILES) {
-        File entry = root.openNextFile();
+        File entry = dir.openNextFile();
         if (!entry) break;
         if (entry.isDirectory()) { entry.close(); continue; }
 
-        // entry.name() may return "/filename" or "filename" depending on
-        // ESP32 Arduino SD library version. Strip leading slash to normalise.
-        const char* raw_name = entry.name();
-        const char* name = (raw_name[0] == '/') ? raw_name + 1 : raw_name;
+        // Strip any path prefix — keep only the bare filename.
+        const char* raw = entry.name();
+        // entry.name() may return full path "/thermoprint/file.txt"
+        // or just "file.txt" depending on SD lib version.
+        const char* slash = strrchr(raw, '/');
+        const char* name = slash ? slash + 1 : raw;
         Serial.printf("[FB] found: '%s'\n", name);
 
         if (ext_match(name, extensions)) {
@@ -48,22 +58,21 @@ bool file_browser_run(const char* const* extensions,
         }
         entry.close();
     }
-    root.close();
+    dir.close();
 
     if (n_files == 0) {
-        const char* msg[] = {"(no files found)"};
-        menu_run("SD Card", msg, 1);
+        const char* msg[] = {"No files in /thermoprint", "(Backspace=back)"};
+        menu_run("Select File", msg, 2);
         return false;
     }
 
-    // Build pointer array for menu_run.
     const char* ptrs[MAX_FILES];
     for (int i = 0; i < n_files; i++) ptrs[i] = names[i];
 
-    int sel = menu_run("Select File", ptrs, n_files);
+    // menu_run returns -1 on Backspace — propagates as false (back to main menu).
+    int sel = menu_run("Select File (Bksp=back)", ptrs, n_files);
     if (sel < 0) return false;
 
-    // Build full path.
-    snprintf(selected_path, path_buf_len, "/%s", names[sel]);
+    snprintf(selected_path, path_buf_len, "%s/%s", PRINT_DIR, names[sel]);
     return true;
 }

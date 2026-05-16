@@ -1,8 +1,8 @@
 #pragma once
 #include <Arduino.h>
-#include "ble_printer.h"
+#include "printer_types.h"
 
-static constexpr const char* CONFIG_PATH = "/thermoprint.cfg";
+static constexpr const char* CONFIG_PATH = "/thermoprint/thermoprint.cfg";
 
 struct Config {
     char        last_addr[18];  // BLE address of last connected printer
@@ -12,6 +12,7 @@ struct Config {
     int         dither;         // 0=Floyd, 1=Atkinson, 2=MeanThreshold
     int         cat_energy;     // Cat printer energy (stored as int, cast to uint16_t)
     bool        verbose_diag;   // show diagnostic screens before print
+    int         label_size_mm;  // Fischero label size: 30 or 50
 };
 
 // Load from SD. Returns false if file missing (fills defaults).

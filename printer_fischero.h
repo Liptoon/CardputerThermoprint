@@ -33,5 +33,6 @@ bool fischero_form_feed(BLEPrinter* ble);
 // Print head width in pixels - always 96 for D11s.
 static constexpr int FISCHERO_PRINT_WIDTH = 96;
 
-// Default label: 30mm at 203 DPI = ~240 dots along feed axis.
-static constexpr int FISCHERO_LABEL_30MM_DOTS = 240;
+// Label sizes at 203 DPI (8 dots/mm).
+static constexpr int FISCHERO_LABEL_30MM_DOTS = 240;  // 30mm label
+static constexpr int FISCHERO_LABEL_50MM_DOTS = 400;  // 50mm label

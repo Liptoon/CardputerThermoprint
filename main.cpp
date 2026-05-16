@@ -129,12 +129,14 @@ static bool do_print(const BinImage& img)
 static void get_print_geometry(int& target_w, int& target_h, bool& rotate)
 {
     if (g_ble.printer_type() == PrinterType::Fischero) {
-        target_w = FISCHERO_PRINT_WIDTH;          // 96
-        target_h = FISCHERO_LABEL_30MM_DOTS;      // 240
+        target_w = FISCHERO_PRINT_WIDTH;
+        target_h = (g_cfg.label_size_mm == 50)
+                   ? FISCHERO_LABEL_50MM_DOTS
+                   : FISCHERO_LABEL_30MM_DOTS;
         rotate   = true;
     } else {
-        target_w = CAT_PRINT_WIDTH;               // 384
-        target_h = 0;                             // grows with content
+        target_w = CAT_PRINT_WIDTH;
+        target_h = 0;
         rotate   = false;
     }
 }
@@ -359,7 +361,7 @@ static void action_status()
 static void action_settings()
 {
     while (true) {
-        char den_str[16], font_str[16], dith_str[24], energy_str[16], verb_str[20];
+        char den_str[16], font_str[16], dith_str[24], energy_str[16], verb_str[20], label_str[20];
         snprintf(den_str,    sizeof(den_str),    "Density: %d", g_cfg.density);
         snprintf(font_str,   sizeof(font_str),   "Font:    %d", g_cfg.font_size_idx);
         const char* dith_names[] = {"Floyd", "Atkinson", "Mean", "None"};
@@ -369,12 +371,14 @@ static void action_settings()
         snprintf(energy_str, sizeof(energy_str), "Energy:0x%04X", (unsigned)g_cfg.cat_energy);
         snprintf(verb_str,   sizeof(verb_str),   "Verbose: %s",
                  g_cfg.verbose_diag ? "ON" : "OFF");
+        snprintf(label_str,  sizeof(label_str),  "Label:   %dmm",
+                 g_cfg.label_size_mm);
 
         const char* items[] = {
-            den_str, font_str, dith_str, energy_str, verb_str, "Back"
+            den_str, font_str, dith_str, energy_str, verb_str, label_str, "Back"
         };
-        int sel = menu_run("Settings", items, 6);
-        if (sel < 0 || sel == 5) break;
+        int sel = menu_run("Settings", items, 7);
+        if (sel < 0 || sel == 6) break;
 
         if (sel == 0) {
             const char* opts[] = {"0 Light","1 Medium","2 Dark"};
@@ -397,6 +401,11 @@ static void action_settings()
             else if (r == 2) g_cfg.cat_energy = 0xFFFF;
         } else if (sel == 4) {
             g_cfg.verbose_diag = !g_cfg.verbose_diag;
+        } else if (sel == 5) {
+            const char* opts[] = {"30mm","50mm"};
+            int r = menu_run("Label Size", opts, 2);
+            if (r == 0) g_cfg.label_size_mm = 30;
+            else if (r == 1) g_cfg.label_size_mm = 50;
         }
 
         if (g_sd_ok) config_save(g_cfg);
@@ -501,6 +510,11 @@ void setup()
         g_sd_ok = true;
         Serial.printf("[SD] OK type=%d size=%llu MB\n",
                       SD.cardType(), SD.cardSize() / (1024 * 1024));
+        // Ensure /thermoprint directory exists for files and config.
+        if (!SD.exists("/thermoprint")) {
+            SD.mkdir("/thermoprint");
+            Serial.println("[SD] Created /thermoprint");
+        }
         show_message("SD OK");
         delay(500);
         config_load(g_cfg);

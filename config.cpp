@@ -11,6 +11,7 @@ void config_defaults(Config& cfg)
     cfg.dither       = 0;
     cfg.cat_energy   = 0x8000;
     cfg.verbose_diag = false;
+    cfg.label_size_mm = 30;
 }
 
 bool config_load(Config& cfg)
@@ -55,6 +56,9 @@ bool config_load(Config& cfg)
             cfg.cat_energy = (int)strtol(val, nullptr, 0);
         } else if (strcmp(key, "verbose_diag") == 0) {
             cfg.verbose_diag = (strcmp(val, "1") == 0);
+        } else if (strcmp(key, "label_size_mm") == 0) {
+            int v = atoi(val);
+            cfg.label_size_mm = (v == 50) ? 50 : 30;
         }
     }
     f.close();
@@ -77,6 +81,7 @@ bool config_save(const Config& cfg)
     f.printf("dither=%d\n",    cfg.dither);
     f.printf("cat_energy=0x%04X\n", (unsigned)cfg.cat_energy);
     f.printf("verbose_diag=%d\n",   cfg.verbose_diag ? 1 : 0);
+    f.printf("label_size_mm=%d\n",  cfg.label_size_mm);
     f.close();
     return true;
 }

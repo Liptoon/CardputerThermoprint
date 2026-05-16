@@ -2,13 +2,7 @@
 #include <Arduino.h>
 #include <stdint.h>
 #include <stddef.h>
-
-// Printer type detected from BLE advertisement name and services.
-enum class PrinterType {
-    Unknown,
-    Fischero,  // FICHERO* / D11s* - 96px, 14mm labels
-    Cat        // GB01/GT01/MX* etc - 384px, 57mm roll
-};
+#include "printer_types.h"
 
 // Maximum length of a BLE notify response we buffer.
 static constexpr size_t BLE_NOTIFY_BUF_LEN = 64;
